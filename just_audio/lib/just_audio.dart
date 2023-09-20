@@ -2833,12 +2833,26 @@ class LockCachingAudioSource extends StreamAudioSource {
     // TODO: Should close sink after done, but it throws an error.
     // ignore: close_sinks
     final sink = (await _partialCacheFile).openWrite();
-    final sourceLength =
+    var sourceLength =
         response.contentLength == -1 ? null : response.contentLength;
-    final mimeType = response.headers.contentType.toString();
-    final acceptRanges = response.headers.value(HttpHeaders.acceptRangesHeader);
-    final originSupportsRangeRequests =
-        acceptRanges != null && acceptRanges != 'none';
+    final requestSize = headers?['x-content-length'];
+    final requestUrl = headers?['x-request-url'];
+    final isOrigin = requestUrl?.contains('format=raw') == true;
+    if (sourceLength == null && requestSize != null && isOrigin) {
+      sourceLength = int.parse(requestSize);
+    }
+    var mimeType = response.headers.contentType.toString();
+    final requestMime = headers?['x-accept'];
+    if (requestMime != null) {
+      if (requestMime == 'm4a') {
+        mimeType = 'audio/mp4';
+      } else {
+        mimeType = 'audio/$requestMime';
+      }
+    }
+    var acceptRanges = response.headers.value(HttpHeaders.acceptRangesHeader);
+    acceptRanges ??= 'bytes';
+    final originSupportsRangeRequests = acceptRanges != 'none';
     final mimeFile = await _mimeFile;
     await mimeFile.writeAsString(mimeType);
     final inProgressResponses = <_InProgressCacheResponse>[];
@@ -3171,6 +3185,9 @@ _ProxyHandler _proxyHandlerForUri(
     String? host;
     try {
       final requestHeaders = <String, String>{if (headers != null) ...headers};
+      /// 自定义内容
+      final selfHeaders = ['x-request-url', 'x-content-length', 'x-accept'];
+      requestHeaders.removeWhere((key, value) => selfHeaders.contains(key));
       request.headers
           .forEach((name, value) => requestHeaders[name] = value.join(', '));
       final originRequest =
@@ -3188,6 +3205,26 @@ _ProxyHandler _proxyHandlerForUri(
             .toList();
         request.response.headers.set(name, filteredValue);
       });
+      /// 自定义修改内容
+      final requestMime = headers?['x-accept'];
+      if (requestMime != null) {
+        if (requestMime == 'm4a') {
+          request.response.headers.set('content-type', 'audio/mp4');
+        } else {
+          request.response.headers
+              .set('content-type', 'audio/$requestMime');
+        }
+      }
+      // 内容长度，原始资源未返回长度需要手动设置
+      final contentLength = originResponse.headers.value(HttpHeaders.contentLengthHeader);
+      final requestSize = headers?['x-content-length'];
+      final requestUrl = headers?['x-request-url'];
+      final isOrigin = requestUrl?.contains('format=raw') == true;
+      if (contentLength == null && requestSize != null && isOrigin) {
+        request.response.headers.set(HttpHeaders.contentLengthHeader, requestSize);
+      }
+      // 其他
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
       request.response.statusCode = originResponse.statusCode;
 
       // Send response
@@ -3829,7 +3866,11 @@ Future<HttpClientRequest> _getUrl(HttpClient client, Uri uri,
     final host = request.headers.value(HttpHeaders.hostHeader);
     request.headers.clear();
     request.headers.set(HttpHeaders.contentLengthHeader, '0');
-    headers.forEach((name, value) => request.headers.set(name, value));
+    final selfHeaders = ['x-request-url', 'x-content-length', 'x-accept'];
+    headers.forEach((name, value) {
+      if (selfHeaders.contains(name)) return;
+      request.headers.set(name, value);
+    });
     if (host != null) {
       request.headers.set(HttpHeaders.hostHeader, host);
     }
