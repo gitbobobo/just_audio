@@ -2940,11 +2940,14 @@ class LockCachingAudioSource extends StreamAudioSource {
     // TODO: Should close sink after done, but it throws an error.
     // ignore: close_sinks
     final sink = (await _partialCacheFile).openWrite();
+
+    // custom_header start
     var sourceLength =
         response.contentLength == -1 ? null : response.contentLength;
     final requestSize = headers?['x-content-length'];
     final requestUrl = headers?['x-request-url'];
-    final isOrigin = requestUrl?.contains('format=raw') == true;
+    // 分别处理navi和emby的无损的URL格式
+    var isOrigin = requestUrl?.contains('format=raw') == true || requestUrl?.contains('static=true') == true;
     if (sourceLength == null && requestSize != null && isOrigin) {
       sourceLength = int.parse(requestSize);
     }
@@ -2959,7 +2962,9 @@ class LockCachingAudioSource extends StreamAudioSource {
     }
     var acceptRanges = response.headers.value(HttpHeaders.acceptRangesHeader);
     acceptRanges ??= 'bytes';
-    final originSupportsRangeRequests = acceptRanges != 'none';
+    final originSupportsRangeRequests = true;
+    // custom_header end
+
     final mimeFile = await _mimeFile;
     await mimeFile.writeAsString(mimeType);
     final inProgressResponses = <_InProgressCacheResponse>[];
@@ -3291,10 +3296,14 @@ _ProxyHandler _proxyHandlerForUri(
     // Try to make normal request
     String? host;
     try {
+
+      // custom_header start
       final requestHeaders = <String, String>{if (headers != null) ...headers};
       /// 自定义内容
       final selfHeaders = ['x-request-url', 'x-content-length', 'x-accept'];
       requestHeaders.removeWhere((key, value) => selfHeaders.contains(key));
+      // custom_header end
+
       request.headers
           .forEach((name, value) => requestHeaders[name] = value.join(', '));
       // write supplied headers last (to ensure supplied headers aren't overwritten)
@@ -3314,7 +3323,8 @@ _ProxyHandler _proxyHandlerForUri(
             .toList();
         request.response.headers.set(name, filteredValue);
       });
-      /// 自定义修改内容
+
+      /// custom_header start
       final requestMime = headers?['x-accept'];
       if (requestMime != null) {
         if (requestMime == 'm4a') {
@@ -3328,12 +3338,15 @@ _ProxyHandler _proxyHandlerForUri(
       final contentLength = originResponse.headers.value(HttpHeaders.contentLengthHeader);
       final requestSize = headers?['x-content-length'];
       final requestUrl = headers?['x-request-url'];
-      final isOrigin = requestUrl?.contains('format=raw') == true;
+      // 分别处理navi和emby的无损的URL格式
+      final isOrigin = requestUrl?.contains('format=raw') == true || requestUrl?.contains('static=true') == true;
       if (contentLength == null && requestSize != null && isOrigin) {
         request.response.headers.set(HttpHeaders.contentLengthHeader, requestSize);
       }
       // 其他
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      // custom_header end
+
       request.response.statusCode = originResponse.statusCode;
 
       // Send response
@@ -3975,11 +3988,15 @@ Future<HttpClientRequest> _getUrl(HttpClient client, Uri uri,
     final host = request.headers.value(HttpHeaders.hostHeader);
     request.headers.clear();
     request.headers.set(HttpHeaders.contentLengthHeader, '0');
+
+    // custom_header start
     final selfHeaders = ['x-request-url', 'x-content-length', 'x-accept'];
     headers.forEach((name, value) {
       if (selfHeaders.contains(name)) return;
       request.headers.set(name, value);
     });
+    // custom_header end
+
     if (host != null) {
       request.headers.set(HttpHeaders.hostHeader, host);
     }
