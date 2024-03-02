@@ -2947,7 +2947,8 @@ class LockCachingAudioSource extends StreamAudioSource {
     final requestSize = headers?['x-content-length'];
     final requestUrl = headers?['x-request-url'];
     // 分别处理navi和emby的无损的URL格式
-    var isOrigin = requestUrl?.contains('format=raw') == true || requestUrl?.contains('static=true') == true;
+    var isOrigin = requestUrl?.contains('format=raw') == true ||
+        requestUrl?.contains('static=true') == true;
     if (sourceLength == null && requestSize != null && isOrigin) {
       sourceLength = int.parse(requestSize);
     }
@@ -3098,6 +3099,9 @@ class LockCachingAudioSource extends StreamAudioSource {
           cacheResponse.controller.close();
         }
       }
+      // custom_header start 修复重命名失败的问题（文件占用）
+      await sink.close();
+      // custom_header end
       (await _partialCacheFile).renameSync(cacheFile.path);
       await subscription.cancel();
       httpClient.close();
@@ -3296,9 +3300,9 @@ _ProxyHandler _proxyHandlerForUri(
     // Try to make normal request
     String? host;
     try {
-
       // custom_header start
       final requestHeaders = <String, String>{if (headers != null) ...headers};
+
       /// 自定义内容
       final selfHeaders = ['x-request-url', 'x-content-length', 'x-accept'];
       requestHeaders.removeWhere((key, value) => selfHeaders.contains(key));
@@ -3330,18 +3334,20 @@ _ProxyHandler _proxyHandlerForUri(
         if (requestMime == 'm4a') {
           request.response.headers.set('content-type', 'audio/mp4');
         } else {
-          request.response.headers
-              .set('content-type', 'audio/$requestMime');
+          request.response.headers.set('content-type', 'audio/$requestMime');
         }
       }
       // 内容长度，原始资源未返回长度需要手动设置
-      final contentLength = originResponse.headers.value(HttpHeaders.contentLengthHeader);
+      final contentLength =
+          originResponse.headers.value(HttpHeaders.contentLengthHeader);
       final requestSize = headers?['x-content-length'];
       final requestUrl = headers?['x-request-url'];
       // 分别处理navi和emby的无损的URL格式
-      final isOrigin = requestUrl?.contains('format=raw') == true || requestUrl?.contains('static=true') == true;
+      final isOrigin = requestUrl?.contains('format=raw') == true ||
+          requestUrl?.contains('static=true') == true;
       if (contentLength == null && requestSize != null && isOrigin) {
-        request.response.headers.set(HttpHeaders.contentLengthHeader, requestSize);
+        request.response.headers
+            .set(HttpHeaders.contentLengthHeader, requestSize);
       }
       // 其他
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
